@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Веб-интерфейс</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+    <h1>Синхронизация товаров</h1>
+    <div id="authStatus" class="hidden">
+        <span id="welcomeMessage"></span>
+        <button id="logoutBtn">Выйти</button>
+    </div>
+</header>
+
+<main>
+    <div id="authForms" class="card">
+        <h2>Авторизация</h2>
+
+        <form id="loginForm">
+            <h3>Войти</h3>
+            <input type="text" id="loginUsername" placeholder="Имя пользователя" required>
+            <input type="password" id="loginPassword" placeholder="Пароль" required>
+            <label class="auth-checkbox">
+                <input type="checkbox" id="toggleLoginPassword">
+                <span>Показать пароль</span>
+            </label>
+            <button type="submit">Войти</button>
+            <p class="error" id="loginError" style="display: none;"></p>
+            <p>Ещё нет аккаунта? <a href="#" id="showRegisterLink">Зарегистрироваться</a></p>
+        </form>
+
+        <form id="registerForm" class="hidden">
+            <h3>Зарегистрироваться</h3>
+            <input type="text" id="registerUsername" placeholder="Имя пользователя" required>
+            <input type="password" id="registerPassword" placeholder="Пароль" required>
+            <input type="password" id="confirmPassword" placeholder="Подтвердите пароль" required>
+            <button type="submit">Зарегистрироваться</button>
+            <p class="error" id="registerError" style="display: none;"></p>
+            <p>Уже есть аккаунт? <a href="#" id="showLoginLink">Войти</a></p>
+        </form>
+    </div>
+
+    <div id="topActions" class="top-actions hidden">
+        <button id="loadFromDbBtn">Загрузить данные из базы</button>
+        <button id="getProductsBtn">Синхронизировать товары с Ozon</button>
+    </div>
+
+    <div id="emptyDbMessage" class="hidden card" style="max-width: 900px; width: 100%; margin: 0 auto 18px; text-align:center;">
+        В базе данных пока нет товаров. Нажмите “Синхронизировать товары с Ozon”, чтобы загрузить их.
+    </div>
+
+    <div id="loadingMessage" class="hidden">Загрузка товаров...</div>
+    <div id="errorMessage" class="hidden error">Произошла ошибка при загрузке.</div>
+
+    <!-- Фильтры -->
+    <div id="filters" class="hidden card">
+        <h2>Фильтры</h2>
+        <div class="filters-row">
+            <input type="text" id="searchInput" placeholder="Поиск по названию">
+            <input type="number" id="minPriceInput" placeholder="Цена от">
+            <input type="number" id="maxPriceInput" placeholder="Цена до">
+            <select id="sortBySelect">
+               <option value="last_synced" selected>По дате синхронизации</option>
+               <option value="price">По цене</option>
+               <option value="name">По названию</option>
+            </select>
+
+            <select id="sortDirSelect">
+               <option value="desc" selected>По убыванию</option>
+               <option value="asc">По возрастанию</option>
+            </select>
+
+            <button id="applyFiltersBtn">Применить</button>
+        </div>
+    </div>
+
+    <div id="productsContainer" class="hidden card">
+        <div class="products-header">
+            <h2>Список товаров</h2>
+            <button id="addProductBtn" class="secondary-btn">Добавить товар</button>
+        </div>
+
+        <div class="tabs">
+            <button id="tabActive" class="tab-btn tab-active">Товары</button>
+            <button id="tabArchive" class="tab-btn">Архив удалённых</button>
+        </div>
+
+        <div id="archiveEmpty" class="hidden archive-empty">
+            Архив пуст, товаров нет.
+        </div>
+
+        <ul id="productsList">
+        </ul>
+
+        <div id="pagination" class="hidden">
+            <button id="prevPageBtn">&laquo; Назад</button>
+            <span id="pageInfo">Страница 1 из 1</span>
+            <button id="nextPageBtn">Вперёд &raquo;</button>
+        </div>
+    </div>
+
+    <div id="syncLogsContainer" class="card hidden">
+        <h2>История синхронизаций</h2>
+        <table id="syncLogsTable">
+        <thead>
+            <tr>
+                <th>Начало</th>
+                <th>Окончание</th>
+                <th>Статус</th>
+                <th>Обновлено товаров</th>
+                <th>Сообщение об ошибке</th>
+            </tr>
+        </thead>
+        <tbody id="syncLogsBody">
+        </tbody>
+        </table>
+    </div>
+
+    <div id="productModal" class="modal hidden">
+        <div class="modal-content">
+            <span id="modalClose" class="modal-close">&times;</span>
+            <div class="modal-body">
+                <div class="modal-left">
+                    <div class="modal-image-wrapper">
+                        <img id="modalImage" src="" alt="Изображение товара" class="modal-image">
+                    </div>
+                    <p class="modal-sync">
+                        <strong>Последняя синхронизация:</strong>
+                        <span id="modalLastSynced">—</span>
+                    </p>
+                </div>
+
+                <div class="modal-right">
+                    <h2 id="modalTitle">Товар</h2>
+
+                    <div class="modal-grid">
+                        <label class="modal-field">
+                            <span>Название</span>
+                            <input type="text" id="modalNameInput">
+                        </label>
+
+                        <label class="modal-field">
+                            <span>Offer ID</span>
+                            <input type="text" id="modalOfferIdInput">
+                        </label>
+
+                        <label class="modal-field">
+                            <span>Product ID</span>
+                            <input type="text" id="modalProductIdInput">
+                        </label>
+
+                        <label class="modal-field">
+                            <span>Цена (RUB)</span>
+                            <input type="number" step="0.01" id="modalPriceInput">
+                        </label>
+
+                        <label class="modal-field">
+                            <span>Остаток (шт.)</span>
+                            <input type="text" id="modalStockInput" min="0" step="1">
+                        </label>
+
+                        <label class="modal-field full-width">
+                            <span>URL изображения</span>
+                            <input type="text" id="modalImageUrlInput">
+                        </label>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button id="modalSaveBtn">Сохранить</button>
+                        <button id="modalDeleteBtn" class="danger-btn">Удалить</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="syncOptionsModal" class="modal hidden">
+            <div class="modal-content sync-modal">
+                <span id="syncOptionsClose" class="modal-close">&times;</span>
+
+                <h2 class="sync-modal-title">Параметры синхронизации</h2>
+
+                <div class="sync-modal-options">
+                    <label class="sync-option">
+                        <input type="checkbox" id="overwriteManualCheckbox">
+                        <span>Перезаписать вручную отредактированные товары</span>
+                    </label>
+
+                    <label class="sync-option">
+                        <input type="checkbox" id="overwriteHiddenCheckbox">
+                        <span>Восстановить скрытые (архивные) товары</span>
+                    </label>
+                </div>
+
+                <div class="modal-actions sync-modal-actions">
+                    <button id="confirmSyncBtn">Синхронизировать</button>
+                    <button id="cancelSyncBtn" class="secondary-btn">Отмена</button>
+                </div>
+            </div>
+        </div>
+
+</main>
+
+<footer>
+    <p>© 2025 АвтоПро</p>
+</footer>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+
+<div id="dashboardToggle" class="dashboard-toggle hidden">
+    📊
+</div>
+
+<!-- Боковая аналитическая панель -->
+<div id="dashboardPanel" class="dashboard-panel hidden">
+    <h2>Анализ каталога</h2>
+
+    <div class="dashboard-stats">
+        <div class="stat">
+            <span class="stat-label">Всего товаров:</span>
+            <span id="statTotal">0</span>
+        </div>
+
+        <div class="stat">
+            <span class="stat-label">Скрытых:</span>
+            <span id="statHidden">0</span>
+        </div>
+
+        <div class="stat">
+            <span class="stat-label">Отредактированных:</span>
+            <span id="statManual">0</span>
+        </div>
+
+        <div class="stat">
+            <span class="stat-label">С нулевым остатком:</span>
+            <span id="statOutOfStock">0</span>
+        </div>
+
+        <div class="stat">
+            <span class="stat-label">Средняя цена:</span>
+            <span id="statAvgPrice">0 ₽</span>
+        </div>
+    </div>
+</div>
+
+
+</body>
+</html>
+
+
