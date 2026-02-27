@@ -75,6 +75,7 @@ class Product(db.Model):
     last_synced = db.Column(db.DateTime, nullable=False, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
     is_hidden = db.Column(db.Boolean, nullable=False, default=False)
     is_manual = db.Column(db.Boolean, nullable=False, default=False)
+    source = db.Column(db.String(20), nullable=False, default='ozon')
     stock = db.Column(db.Integer, nullable=True)
     def __repr__(self):
         return f'<Product {self.offer_id} - {self.name}>'
@@ -89,7 +90,8 @@ class Product(db.Model):
             'image_url': self.image_url,
             'stock': self.stock,
             'is_manual': self.is_manual,
-            'last_synced': self.last_synced.isoformat() if self.last_synced else None
+            'last_synced': self.last_synced.isoformat() if self.last_synced else None,
+            'source': self.source
         }
         
 class SyncLog(db.Model):
@@ -372,7 +374,8 @@ def get_ozon_products():
                     image_url=product_image_url,
                     last_synced=datetime.datetime.now(datetime.timezone.utc),
                     is_hidden=False,
-                    is_manual=False
+                    is_manual=False,
+                    source='ozon'
                 )
                 db.session.add(new_product)
                 print(f"Added new product: {current_offer_id}")
@@ -592,7 +595,8 @@ def create_product_local():
         price=price_value,
         stock=stock_value,
         image_url=image_url,
-        last_synced=datetime.datetime.now(datetime.timezone.utc)
+        last_synced=datetime.datetime.now(datetime.timezone.utc),
+        source='local'
     )
 
     db.session.add(new_product)

@@ -193,39 +193,65 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         products.forEach(product => {
+            productsList.innerHTML = '';
+
+        if (!products || products.length === 0) {
+            productsList.innerHTML = '<li>Товары не найдены.</li>';
+            return;
+        }
+
+        products.forEach(product => {
             const listItem = document.createElement('li');
+
             const imageUrl = product.image_url;
 
             const manualBadge = product.is_manual
-                ? `<span class="manual-badge" title="Товар отредактирован вручную">✎</span>`
-                : '';
+            ? `<span class="manual-badge" title="Товар отредактирован вручную">✎</span>`
+            : '';
 
-            let productHtml = `
-                ${manualBadge}
-                <div class="product-info">
-                    <span class="product-name">${product.name}</span>
-                    <span class="product-offer-id">ID: ${product.offer_id}</span>
-                </div>
-                <span class="product-price">${product.price} RUB</span>
+            const isLocal = (product.source === 'local') || String(product.offer_id || '').startsWith('LOCAL-');
+            const localBadge = isLocal
+            ? `<span class="local-badge" title="Локальный товар (создан вручную)">LOCAL</span>`
+            : '';
+
+            // ✅ Всегда одинаковое место слева под картинку
+            const thumbHtml = imageUrl
+                ? `<img src="${imageUrl}" alt="${product.name}" class="product-thumbnail"
+                onerror="this.closest('.product-thumb').classList.add('no-image'); this.remove();">`
+                : `
+                <div class="no-image-icon">
+                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6">
+                <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+                <circle cx="8" cy="10" r="2"></circle>
+                <path d="M21 15l-5-5L5 21"></path>
+                </svg>
+            </div>
             `;
 
-            if (imageUrl) {
-                productHtml =
-                    `<img src="${imageUrl}" alt="${product.name}"
-                        class="product-thumbnail" onerror="this.style.display='none'">`
-                    + productHtml;
-            }
+            listItem.innerHTML = `
+            ${manualBadge}
+            ${localBadge}
 
-            listItem.innerHTML = productHtml;
+            <div class="product-thumb ${imageUrl ? '' : 'no-image'}">
+                ${thumbHtml}
+            </div>
+
+            <div class="product-info">
+                <span class="product-name">${product.name}</span>
+                <span class="product-offer-id">ID: ${product.offer_id}</span>
+            </div>
+
+            <span class="product-price">${product.price ?? '—'} RUB</span>
+            `;
+
             listItem.dataset.offerId = product.offer_id;
             listItem.addEventListener('click', () => {
-                if (product.offer_id) {
-                    loadProductDetail(product.offer_id);
-                }
+            if (product.offer_id) loadProductDetail(product.offer_id);
             });
 
             productsList.appendChild(listItem);
         });
+    });
     }
 
     if (dashboardToggle) {
