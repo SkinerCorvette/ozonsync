@@ -11,6 +11,7 @@ from flask import request
 from sqlalchemy import func
 from functools import wraps
 from flask import render_template
+import json
 import datetime
 
 load_dotenv() # Загрузка данных из файла .env
@@ -94,6 +95,45 @@ class Product(db.Model):
             'source': self.source
         }
         
+class ProductChange(db.Model):
+    __tablename__ = 'product_changes'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # Привязываем к товару по product.id (надёжно)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False, index=True)
+
+    # Дублируем offer_id для удобного поиска (и если вдруг товар потом удалят физически)
+    offer_id = db.Column(db.String(255), nullable=False, index=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    action = db.Column(db.String(50), nullable=False)  # create_local/update/delete/restore etc.
+    changed_at = db.Column(db.DateTime, default=datetime.datetime.now(datetime.timezone.utc), nullable=False)
+
+    before_json = db.Column(db.Text, nullable=True)
+    after_json = db.Column(db.Text, nullable=True)
+
+    def to_dict(self):
+        def parse_json(s):
+            if not s:
+                return None
+            try:
+                return json.loads(s)
+            except Exception:
+                return None
+
+        return {
+            "id": self.id,
+            "product_id": self.product_id,
+            "offer_id": self.offer_id,
+            "user_id": self.user_id,
+            "action": self.action,
+            "changed_at": self.changed_at.isoformat() if self.changed_at else None,
+            "before": parse_json(self.before_json),
+            "after": parse_json(self.after_json),
+        }
+        
 class SyncLog(db.Model):
     __tablename__ = 'sync_logs'
 
@@ -142,6 +182,38 @@ class User(db.Model, UserMixin):
 
     def __repr__(self):
         return f'<User {self.username}>'
+    
+def product_snapshot(p: Product):
+    """Снимок полей товара для истории."""
+    return {
+        "product_id": str(p.product_id) if p.product_id is not None else None,
+        "offer_id": p.offer_id,
+        "name": p.name,
+        "price": float(p.price) if p.price is not None else None,
+        "stock": p.stock,
+        "image_url": p.image_url,
+        "is_hidden": bool(p.is_hidden),
+        "is_manual": bool(p.is_manual),
+        "source": getattr(p, "source", None),
+        "last_synced": p.last_synced.isoformat() if p.last_synced else None,
+    }
+
+
+def log_product_change(product: Product, action: str, before: dict | None, after: dict | None):
+    """Записывает изменение товара в таблицу product_changes."""
+    try:
+        entry = ProductChange(
+            product_id=product.id,
+            offer_id=product.offer_id,
+            user_id=current_user.id if current_user.is_authenticated else None,
+            action=action,
+            before_json=json.dumps(before, ensure_ascii=False) if before else None,
+            after_json=json.dumps(after, ensure_ascii=False) if after else None,
+            changed_at=datetime.datetime.now(datetime.timezone.utc)
+        )
+        db.session.add(entry)
+    except Exception as e:
+        print("⚠️ Не удалось записать историю изменения:", e)
 
 
 # Получаем ключи из переменных окружения
@@ -543,6 +615,19 @@ def create_product_local():
     
     print("DEBUG stock raw:", repr(stock),
           type(stock))
+    
+    if len(name) > 120:
+        return jsonify({"message": "Название слишком длинное. Максимум 120 символов."}), 400
+
+    if offer_id and len(offer_id) > 80:
+        return jsonify({"message": "Offer ID слишком длинный. Максимум 80 символов."}), 400
+
+    # product_id может быть числом, но если приходит строкой — ограничим длину
+    if isinstance(product_id, str) and len(product_id) > 20:
+        return jsonify({"message": "Product ID слишком длинный. Максимум 20 символов."}), 400
+
+    if image_url and len(image_url) > 400:
+        return jsonify({"message": "URL изображения слишком длинный. Максимум 400 символов."}), 400
 
     if not name:
         return jsonify({"message": "Название товара (name) обязательно."}), 400
@@ -600,8 +685,12 @@ def create_product_local():
     )
 
     db.session.add(new_product)
-    db.session.commit()
+    db.session.flush()  # чтобы появился new_product.id
 
+    after = product_snapshot(new_product)
+    log_product_change(new_product, action="create_local", before=None, after=after)
+
+    db.session.commit()
     return jsonify(new_product.to_dict()), 201
 
 @app.route('/api/products_local/<string:offer_id>', methods=['PUT']) # редактирование товара
@@ -612,6 +701,8 @@ def update_product_local(offer_id):
 
     if not product:
         return jsonify({"message": "Товар не найден."}), 404
+    
+    before = product_snapshot(product)
 
     data = request.get_json() or {}
     name = data.get('name')
@@ -619,6 +710,12 @@ def update_product_local(offer_id):
     if 'stock' in data:
         product.stock = data.get('stock')
     image_url = data.get('image_url')
+    
+    if name is not None and len(name) > 120:
+        return jsonify({"message": "Название слишком длинное. Максимум 120 символов."}), 400
+
+    if image_url is not None and image_url and len(image_url) > 400:
+        return jsonify({"message": "URL изображения слишком длинный. Максимум 400 символов."}), 400
 
     if name is not None:
         product.name = name
@@ -634,6 +731,15 @@ def update_product_local(offer_id):
 
     product.last_synced = datetime.datetime.now(datetime.timezone.utc)
     product.is_manual = True
+    
+    after = product_snapshot(product)
+    
+    log_product_change(
+        product,
+        action="update",
+        before=before,
+        after=after
+    )
 
     db.session.commit()
 
@@ -647,11 +753,46 @@ def delete_product_local(offer_id):
 
     if not product:
         return jsonify({"message": "Товар не найден."}), 404
+    
+    before = product_snapshot(product)
 
     product.is_hidden = True
+    
+    after = product_snapshot(product)
+    log_product_change(product, action="delete", before=before, after=after)
     db.session.commit()
 
     return jsonify({"message": "Товар удалён."}), 200
+
+@app.route('/api/products/<string:offer_id>/changes', methods=['GET'])
+@login_required
+def get_product_changes(offer_id):
+    limit = request.args.get('limit', type=int, default=50)
+
+    changes = ProductChange.query.filter_by(offer_id=offer_id).order_by(
+        ProductChange.changed_at.desc()
+    ).limit(limit).all()
+
+    return jsonify({"changes": [c.to_dict() for c in changes]}), 200
+
+@app.route('/api/products_local/<string:offer_id>/restore', methods=['PUT'])
+@login_required
+@admin_required
+def restore_product_local(offer_id):
+    product = Product.query.filter_by(offer_id=offer_id).first()
+    if not product:
+        return jsonify({"message": "Товар не найден."}), 404
+
+    before = product_snapshot(product)
+
+    product.is_hidden = False
+    product.last_synced = datetime.datetime.now(datetime.timezone.utc)
+
+    after = product_snapshot(product)
+    log_product_change(product, action="restore", before=before, after=after)
+
+    db.session.commit()
+    return jsonify(product.to_dict()), 200
 
 
 @app.route('/api/sync_logs', methods=['GET']) #работа с логами синхронизаций под действующую учетную запись

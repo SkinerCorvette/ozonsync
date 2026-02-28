@@ -92,6 +92,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const dashboardPanel = document.getElementById('dashboardPanel');
     const dashboardToggle = document.getElementById('dashboardToggle');
 
+    //модалка истории
+    const modalHistoryBtn = document.getElementById('modalHistoryBtn');
+    const historyModal = document.getElementById('historyModal');
+    const historyBody = document.getElementById('historyBody');
+    const historyClose = document.getElementById('historyClose');
+    const historyCloseBtn = document.getElementById('historyCloseBtn');
+    
+    //предупреждение о количестве символов
+    const modalFormError = document.getElementById('modalFormError');
+    //счётчик подстветка
+    const nameCounter = document.getElementById('nameCounter');
+    const urlCounter = document.getElementById('urlCounter');
+
     let modalMode = 'view'; 
     let modalCurrentOfferId = null;
     let currentUserRole = "user";
@@ -112,6 +125,190 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dashboardPanel) dashboardPanel.classList.remove('open'); // закрыть если открыта
         if (dashboardToggle) dashboardToggle.classList.add('hidden');
         if (dashboardPanel) dashboardPanel.classList.add('hidden');
+    }
+
+    function openHistoryModal() {
+    historyModal.classList.remove('hidden');
+    }
+
+    function closeHistoryModal() {
+    historyModal.classList.add('hidden');
+    }
+
+    if (historyClose) historyClose.addEventListener('click', closeHistoryModal);
+    if (historyCloseBtn) historyCloseBtn.addEventListener('click', closeHistoryModal);
+
+    if (historyModal) {
+        historyModal.addEventListener('click', (e) => {
+        if (e.target === historyModal) closeHistoryModal();
+    });
+    }
+
+    function updateCounter(inputEl, counterEl, maxLen) {
+        if (!inputEl || !counterEl) return;
+
+        const len = (inputEl.value || '').length;
+        counterEl.textContent = `${len} / ${maxLen}`;
+
+        // сбрасываем классы
+        counterEl.classList.remove('warn', 'danger');
+        inputEl.classList.remove('input-warn', 'input-danger');
+
+        // пороги
+        const warnAt = Math.floor(maxLen * 0.85);
+
+        if (len > maxLen) {
+        counterEl.classList.add('danger');
+        inputEl.classList.add('input-danger');
+        } else if (len >= warnAt) {
+        counterEl.classList.add('warn');
+        inputEl.classList.add('input-warn');
+    }
+    }
+
+    function validateModalFormLive() {
+        // базовые правила
+        const nameVal = modalNameInput.value.trim();
+        const nameLen = modalNameInput.value.length;
+        const nameMax = parseInt(modalNameInput.getAttribute('maxlength') || '120', 10);
+
+        const urlMax = modalImageUrlInput
+        ? parseInt(modalImageUrlInput.getAttribute('maxlength') || '400', 10)
+        : 0;
+        const urlLen = modalImageUrlInput ? modalImageUrlInput.value.length : 0;
+
+        const nameOk = nameVal.length > 0 && nameLen <= nameMax;
+        const urlOk = !modalImageUrlInput || urlLen <= urlMax;
+
+        // если форма невалидна — блокируем сохранение
+        if (modalSaveBtn) {
+            modalSaveBtn.disabled = !(nameOk && urlOk);
+    }
+    }
+
+    if (modalNameInput) {
+        modalNameInput.addEventListener('input', () => {
+        updateCounter(modalNameInput, nameCounter, 120);
+        validateModalFormLive();
+    });
+    }
+
+    if (modalImageUrlInput && urlCounter) {
+        modalImageUrlInput.addEventListener('input', () => {
+        updateCounter(modalImageUrlInput, urlCounter, 400);
+        validateModalFormLive();
+    });
+    }
+
+    function formatAction(action) {
+        const map = {
+            create_local: 'Создан локально',
+            update: 'Изменён',
+            delete: 'Удалён (в архив)',
+            restore: 'Восстановлен',
+        };
+        return map[action] || action;
+    }
+
+    function showModalError(msg) {
+        if (!modalFormError) return;
+        modalFormError.textContent = msg;
+        modalFormError.classList.remove('hidden');
+    }
+
+    function hideModalError() {
+        if (!modalFormError) return;
+        modalFormError.textContent = '';
+        modalFormError.classList.add('hidden');
+    }
+
+    function renderHistory(changes) {
+        historyBody.innerHTML = '';
+
+        if (!changes || changes.length === 0) {
+            historyBody.innerHTML = `<div class="history-empty">История пуста.</div>`;
+            return;
+    }
+
+    changes.forEach(c => {
+        const when = c.changed_at ? new Date(c.changed_at).toLocaleString() : '—';
+        const actionText = formatAction(c.action);
+
+    
+        const beforeName = c.before?.name;
+        const afterName = c.after?.name;
+
+        const beforePrice = c.before?.price;
+        const afterPrice = c.after?.price;
+
+        const diffLines = [];
+        if (beforeName !== undefined && afterName !== undefined && beforeName !== afterName) {
+            diffLines.push(`Название: "${beforeName}" → "${afterName}"`);
+        }
+        if (beforePrice !== undefined && afterPrice !== undefined && beforePrice !== afterPrice) {
+            diffLines.push(`Цена: ${beforePrice} → ${afterPrice}`);
+        }
+
+        const beforeStock = c.before?.stock;
+        const afterStock = c.after?.stock;
+
+        if (beforeStock !== undefined && afterStock !== undefined && beforeStock !== afterStock) {
+            const b = (beforeStock === null) ? "—" : beforeStock;
+            const a = (afterStock === null) ? "—" : afterStock;
+            diffLines.push(`Остаток: ${b} → ${a}`);
+        }
+
+        const beforeHidden = c.before?.is_hidden;
+        const afterHidden = c.after?.is_hidden;
+
+        if (beforeHidden !== undefined && afterHidden !== undefined && beforeHidden !== afterHidden) {
+            const human = (v) => (v ? "Да" : "Нет");
+            diffLines.push(`Скрыт: ${human(beforeHidden)} → ${human(afterHidden)}`);
+        }
+
+        const diffHtml = diffLines.length
+            ? diffLines.map(x => `<div>• ${x}</div>`).join('')
+            : `<div>• Детали изменений не отображены (можем расширить)</div>`;
+
+        const el = document.createElement('div');
+            el.className = 'history-item';
+            el.innerHTML = `
+            <div class="history-top">
+                <span class="history-action">${actionText}</span>
+                <span class="history-time">${when}</span>
+            </div>
+            <div class="history-diff">${diffHtml}</div>
+            `;
+            historyBody.appendChild(el);
+        });
+    }
+
+    if (modalHistoryBtn) {
+        modalHistoryBtn.addEventListener('click', async () => {
+        if (!modalCurrentOfferId) return;
+
+        try {
+            historyBody.innerHTML = 'Загрузка...';
+
+            const resp = await fetch(`/api/products/${encodeURIComponent(modalCurrentOfferId)}/changes?limit=50`, {
+                credentials: 'include'
+        });
+
+        const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                historyBody.innerHTML = `<div class="history-empty">Не удалось загрузить историю.</div>`;
+                openHistoryModal();
+            return;
+        }
+
+            renderHistory(data.changes || []);
+            openHistoryModal();
+            } catch (e) {
+            console.error('History load error', e);
+            historyBody.innerHTML = `<div class="history-empty">Ошибка загрузки истории.</div>`;
+            openHistoryModal();
+        }
+        });
     }
 
     function showAuthForms() {
@@ -185,55 +382,45 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderProducts(products) {
-        productsList.innerHTML = '';
+  productsList.innerHTML = '';
 
-        if (!products || products.length === 0) {
-            productsList.innerHTML = '<li>Товары не найдены.</li>';
-            return;
-        }
+  if (!products || products.length === 0) {
+    productsList.innerHTML = '<li>Товары не найдены.</li>';
+    return;
+  }
 
-        products.forEach(product => {
-            productsList.innerHTML = '';
+  products.forEach(product => {
+    const listItem = document.createElement('li');
+    const imageUrl = product.image_url;
 
-        if (!products || products.length === 0) {
-            productsList.innerHTML = '<li>Товары не найдены.</li>';
-            return;
-        }
+    const manualBadge = product.is_manual
+      ? `<span class="manual-badge" title="Товар отредактирован вручную">✎</span>`
+      : '';
 
-        products.forEach(product => {
-            const listItem = document.createElement('li');
+    const isLocal = (product.source === 'local') || String(product.offer_id || '').startsWith('LOCAL-');
+    const localBadge = isLocal
+      ? `<span class="local-badge" title="Локальный товар (создан вручную)">LOCAL</span>`
+      : '';
 
-            const imageUrl = product.image_url;
+    const thumbHtml = imageUrl
+      ? `<img src="${imageUrl}" alt="${product.name}" class="product-thumbnail"
+            onerror="this.closest('.product-thumb').classList.add('no-image'); this.remove();">`
+      : `
+        <div class="no-image-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+            <circle cx="8" cy="10" r="2"></circle>
+            <path d="M21 15l-5-5L5 21"></path>
+          </svg>
+        </div>
+      `;
 
-            const manualBadge = product.is_manual
-            ? `<span class="manual-badge" title="Товар отредактирован вручную">✎</span>`
-            : '';
-
-            const isLocal = (product.source === 'local') || String(product.offer_id || '').startsWith('LOCAL-');
-            const localBadge = isLocal
-            ? `<span class="local-badge" title="Локальный товар (создан вручную)">LOCAL</span>`
-            : '';
-
-            // ✅ Всегда одинаковое место слева под картинку
-            const thumbHtml = imageUrl
-                ? `<img src="${imageUrl}" alt="${product.name}" class="product-thumbnail"
-                onerror="this.closest('.product-thumb').classList.add('no-image'); this.remove();">`
-                : `
-                <div class="no-image-icon">
-                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6">
-                <rect x="3" y="5" width="18" height="14" rx="2"></rect>
-                <circle cx="8" cy="10" r="2"></circle>
-                <path d="M21 15l-5-5L5 21"></path>
-                </svg>
-            </div>
-            `;
-
-            listItem.innerHTML = `
+        listItem.innerHTML = `
             ${manualBadge}
             ${localBadge}
 
             <div class="product-thumb ${imageUrl ? '' : 'no-image'}">
-                ${thumbHtml}
+            ${thumbHtml}
             </div>
 
             <div class="product-info">
@@ -251,7 +438,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             productsList.appendChild(listItem);
         });
-    });
     }
 
     if (dashboardToggle) {
@@ -443,6 +629,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         modalImageUrlInput.value = data.image_url || '';
+
+        updateCounter(modalNameInput, nameCounter, 120);
+        if (modalImageUrlInput) updateCounter(modalImageUrlInput, urlCounter, 400);
+        validateModalFormLive();
 
         if (data.image_url) {
             modalImage.src = data.image_url;
@@ -784,7 +974,7 @@ document.addEventListener('keydown', (e) => {
                 const url = `/api/products?overwrite_manual=${overwriteManual}&overwrite_hidden=${overwriteHidden}`;
 
                 const response = await fetch(url, {
-                    redentials: 'include'
+                    credentials: 'include'
                 });
 
                 if (response.status === 401) {
@@ -873,12 +1063,53 @@ document.addEventListener('keydown', (e) => {
         modalImage.style.display = 'none';
 
         modalDeleteBtn.style.display = 'none'; 
+
+        updateCounter(modalNameInput, nameCounter, 120);
+        if (modalImageUrlInput) updateCounter(modalImageUrlInput, urlCounter, 400);
+        validateModalFormLive();
+
         applyRoleToModal();
         openProductModal();
     });
 
     modalSaveBtn.addEventListener('click', async (e) => {
     e.preventDefault();
+
+    hideModalError();
+
+    const nameVal = modalNameInput.value.trim();
+    const offerVal = modalOfferIdInput.value.trim();
+    const productIdVal = modalProductIdInput.value.trim();
+    const imageUrlVal = modalImageUrlInput.value.trim();
+    const stockValRaw = modalStockInput ? modalStockInput.value.trim() : "";
+
+    if (nameVal.length === 0) {
+        showModalError('Название товара обязательно.');
+        return;
+    }
+    if (nameVal.length > 120) {
+        showModalError('Название слишком длинное. Максимум 120 символов.');
+        return;
+    }
+    if (offerVal.length > 80) {
+        showModalError('Offer ID слишком длинный. Максимум 80 символов.');
+        return;
+    }
+    if (productIdVal.length > 20) {
+        showModalError('Product ID слишком длинный. Максимум 20 символов.');
+        return;
+    }
+    if (imageUrlVal.length > 400) {
+        showModalError('URL изображения слишком длинный. Максимум 400 символов.');
+        return;
+    }
+    if (stockValRaw.length > 0) {
+        const n = Number(stockValRaw);
+    if (!Number.isInteger(n) || n < 0) {
+        showModalError('Остаток должен быть целым числом (0 или больше).');
+        return;
+    }
+    }
 
     const payload = {
         name: modalNameInput.value.trim(),
@@ -892,7 +1123,7 @@ document.addEventListener('keydown', (e) => {
     };
 
     if (!payload.name) {
-        alert('Название товара обязательно.');
+        showModalError('Название товара обязательно.');
         return;
     }
 
