@@ -266,10 +266,23 @@ document.addEventListener('DOMContentLoaded', () => {
             diffLines.push(`Скрыт: ${human(beforeHidden)} → ${human(afterHidden)}`);
         }
 
-        const diffHtml = diffLines.length
-            ? diffLines.map(x => `<div>• ${x}</div>`).join('')
-            : `<div>• Детали изменений не отображены (можем расширить)</div>`;
+        const beforeImg = c.before?.image_url;
+        const afterImg  = c.after?.image_url;
 
+        if (beforeImg !== undefined && afterImg !== undefined && beforeImg !== afterImg) {
+            diffLines.push(`URL изображения изменён`);
+        }
+
+        let diffHtml = '';
+
+        if (diffLines.length) {
+            diffHtml = diffLines.map(x => `<div>• ${x}</div>`).join('');
+        } else {
+            
+        if (c.action !== 'create_local') {
+            diffHtml = `<div>• Детали изменений не отображены</div>`;
+        }
+    }   
         const el = document.createElement('div');
             el.className = 'history-item';
             el.innerHTML = `
@@ -335,10 +348,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
      const addBtn = document.getElementById("addProductBtn");
-    const logsContainer = document.getElementById("syncLogsContainer");
+     const logsContainer = document.getElementById("syncLogsContainer");
 
      if (addBtn) addBtn.style.display = isAdmin ? "inline-block" : "none";
-    if (logsContainer) logsContainer.style.display = isAdmin ? "block" : "none";
+     if (logsContainer) logsContainer.style.display = isAdmin ? "block" : "none";
+
+     if (tabArchive) tabArchive.style.display = isAdmin ? "inline-flex" : "none";
+     if (archiveEmpty) archiveEmpty.classList.add('hidden');
+     const tabsContainer = document.querySelector('.tabs');
+     if (tabsContainer) tabsContainer.style.display = isAdmin ? "flex" : "none";
+
+     if (!isAdmin && currentListMode !== 'active') {
+     setTab('active');
+     }
+
+     
     }
 
     function applyRoleToModal() {
@@ -346,10 +370,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const saveBtn = document.getElementById("modalSaveBtn");
     const deleteBtn = document.getElementById("modalDeleteBtn");
+    const historyBtn = document.getElementById("modalHistoryBtn");
 
     if (saveBtn) saveBtn.style.display = isAdmin ? "inline-block" : "none";
     if (deleteBtn) deleteBtn.style.display = isAdmin ? "inline-block" : "none";
-}
+    if (historyBtn) historyBtn.style.display = isAdmin ? "inline-block" : "none";
+    
+    
+    }
 
     function showLoggedInState(username) {
 
@@ -393,14 +421,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const listItem = document.createElement('li');
     const imageUrl = product.image_url;
 
-    const manualBadge = product.is_manual
-      ? `<span class="manual-badge" title="Товар отредактирован вручную">✎</span>`
-      : '';
+    const showBadges = (currentUserRole === 'admin');
+
+    const manualBadge = (showBadges && product.is_manual)
+        ? `<span class="manual-badge" title="Товар отредактирован вручную">✎</span>`
+        : '';
 
     const isLocal = (product.source === 'local') || String(product.offer_id || '').startsWith('LOCAL-');
-    const localBadge = isLocal
-      ? `<span class="local-badge" title="Локальный товар (создан вручную)">LOCAL</span>`
-      : '';
+
+    const localBadge = (showBadges && isLocal)
+        ? `<span class="local-badge" title="Локальный товар (создан вручную)">LOCAL</span>`
+        : '';
 
     const thumbHtml = imageUrl
       ? `<img src="${imageUrl}" alt="${product.name}" class="product-thumbnail"
@@ -667,9 +698,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isViewOnly) {
             modalSaveBtn.style.display = 'none';
             modalDeleteBtn.style.display = 'none';
+            if (modalHistoryBtn) modalHistoryBtn.style.display = (currentUserRole === "admin") ? "inline-block" : "none";
         } else {
             applyRoleToModal();
         }
+        if (modalHistoryBtn) modalHistoryBtn.style.display = 'inline-flex';
+        if (modalDeleteBtn) modalDeleteBtn.style.display = 'inline-flex';
         openProductModal();
     } catch (error) {
         console.error('Ошибка при загрузке детального товара:', error);
@@ -1061,14 +1095,14 @@ document.addEventListener('keydown', (e) => {
         modalImageUrlInput.value = '';
         modalLastSynced.textContent = '—';
         modalImage.style.display = 'none';
-
-        modalDeleteBtn.style.display = 'none'; 
-
         updateCounter(modalNameInput, nameCounter, 120);
         if (modalImageUrlInput) updateCounter(modalImageUrlInput, urlCounter, 400);
         validateModalFormLive();
-
         applyRoleToModal();
+
+        if (modalHistoryBtn) modalHistoryBtn.style.display = 'none';
+        if (modalDeleteBtn) modalDeleteBtn.style.display = 'none';
+
         openProductModal();
     });
 
